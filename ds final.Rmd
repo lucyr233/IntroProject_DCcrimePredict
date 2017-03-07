@@ -1,0 +1,273 @@
+---
+title: "DC Crime"
+output: html_document
+author:
+- Tian Yang
+- Huixin Rao
+- Hanbo Li
+---
+
+```{r , echo=FALSE}
+library(dplyr)
+library(class)
+library(caret)
+library(data.table)
+library(rpart)
+library(randomForest)
+```
+
+Combine the raw data together.
+```{r}
+data08<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2008.csv")
+data09<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2009.csv")
+data10<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2010.csv")
+data11<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2011.csv")
+data12<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2012.csv")
+data13<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2013.csv")
+data14<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2014.csv")
+data15<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2015.csv")
+data16<-read.csv("/Users/yangtian/Desktop/ds final/Crime_Incidents__2016.csv")
+data <- rbind(data08, data09, data10, data11,data12,data13,data14,data15,data16)
+dim(data)
+head(data)
+```
+
+## Data Preprocessing
+
+### The transfer of date 
+```{r}
+#transfer the date variable into year, month, day, hour and day_of_week, which are easier for us to analyze
+week<-weekdays(as.Date(data$START_DATE))
+
+#there are a lot of na in day_of_week, we need to transfer them into usable value
+table(is.na(week))
+sd <- substring(data$START_DATE,1,10)
+data <- data[-which(sd == ""),] #delete 13 na values (13 is a small number in our case)
+sd<- substring(data$START_DATE,1,10)
+week <- weekdays(as.Date(data$START_DATE))
+table(is.na(week))
+wrong<-sd[is.na(week)]
+head(wrong)
+nwd<-weekdays(as.Date(wrong))
+week[is.na(week)]<-nwd
+st_y<-substring(data$START_DATE, 1,4)
+st_m<-substring(data$START_DATE, 6,7)
+st_d<-substring(data$START_DATE, 9,10)
+st_h<-substring(data$START_DATE, 12,13)
+
+#add some new variables in the dc_crime dataset
+data$start_year<-st_y
+data$start_month<-st_m
+data$start_hour<-st_h
+data$start_dayOfWeek<-week
+data$START_DATE<-NULL
+
+#data$season[data$start_month>=3 & data$start_month<=5]<-'Spring'
+#data$season[data$start_month>=6 & data$start_month<=8]<-'Summer'
+#data$season[data$start_month>=9 & data$start_month<=11]<-'Autumn'
+#data$season[data$start_month==1|data$start_month==2|data$start_month==12]<-'Winter'
+dim(data)
+```
+
+### Delete Overlaping Variables 
+Since there are too many varables describing location, we choose NEIBORHOODCLUSTER as our location varable. 
+```{r }
+colnames(data)
+data$CCN<-NULL
+data$REPORTDATETIME<-NULL
+data$LASTMODIFIEDDATE<-NULL
+data$BLOCKSITEADDRESS<-NULL
+data$CENSUS_TRACT<-NULL
+data$END_DATE<-NULL
+data$VOTING_PRECINCT<-NULL
+data$CENSUS_TRACT<-NULL
+data$PSA<-NULL
+data$ANC<-NULL
+data$WARD<-NULL
+data$BUSINESSIMPROVEMENTDISTRICT<-NULL
+data$DISTRICT<-NULL
+data$BLOCK_GROUP<-NULL
+data$OBJECTID<-NULL
+data$X<-NULL
+data$Y<-NULL
+summary(data)
+```
+
+## Model Selection
+
+### KNN
+
+#### Step 1 : Transformming all data type to numeric
+
+```{r}
+shift<-as.character(data$SHIFT)
+shift[which(shift == "DAY")]<-1
+shift[which(shift == "EVENING")]<-2
+shift[which(shift == "MIDNIGHT")]<-3
+table(shift)
+offense<-as.character(data$OFFENSE)
+offense[which(offense == "ARSON")]<-1
+offense[which(offense == "ASSAULT W/DANGEROUS WEAPON")]<-2
+offense[which(offense == "BURGLARY")]<-3
+offense[which(offense == "HOMICIDE")]<-4
+offense[which(offense == "MOTOR VEHICLE THEFT")]<-5
+offense[which(offense == "ROBBERY")]<-6
+offense[which(offense == "SEX ABUSE")]<-7
+offense[which(offense == "THEFT F/AUTO")]<-8
+offense[which(offense == "THEFT/OTHER")]<-9
+table(offense)
+method<-as.character(data$METHOD)
+method[which(method == "GUN")]<-1
+method[which(method == "KNIFE")]<-2
+method[which(method == "OTHERS")]<-3
+table(method)
+dw<-as.character(data$start_dayOfWeek)
+dw[which(dw == "Monday")]<-1
+dw[which(dw == "Tuesday")]<-2
+dw[which(dw == "Wednesday")]<-3
+dw[which(dw == "Thursday")]<-4
+dw[which(dw == "Friday")]<-5
+dw[which(dw == "Saturday")]<-6
+dw[which(dw == "Sunday")]<-7
+table(dw)
+
+data_knn <- data
+data_knn$SHIFT<-as.numeric(shift)
+data_knn$start_dayOfWeek<-as.numeric(dw)
+data_knn$METHOD<-as.numeric(method)
+data_knn$OFFENSE<-as.numeric(offense)
+summary(data_knn)
+```
+
+#### Step 2 : Set train and test data
+```{r}
+set.seed(1)
+test <- sample_frac(na.omit(data_knn),0.3)
+train <- sample_frac(na.omit(data_knn),0.7)
+test.y<-test[,2]
+train.y<-train[,2]
+test.x<-test[,-2]
+train.x<-train[,-2]
+```
+
+
+#### Step 3 : Do the KNN prediction
+
+```{r}
+knn.pred=knn(train.x,test.x,train.y,k=1)
+table(knn.pred,test.y)
+confusionMatrix(knn.pred,test.y)
+```
+ 
+We could see that the accuracy of KNN is very high, which is over 0.8.
+
+### Decision Tree and Random Forest
+
+```{r}
+crime <- data
+crime <- crime[-c(which(data$start_year == "1993"), which(data$start_year == "1997"), which(data$start_year == "1800")),]
+crime$start_year<-as.integer(crime$start_year)
+crime$start_month<-as.integer(crime$start_month)
+crime$start_hour<-as.integer(crime$start_hour)
+crime$start_dayOfWeek<-as.factor(crime$start_dayOfWeek)
+
+# set the train and test data the same as KNN
+set.seed(1)
+dt = sort(sample(nrow(crime), nrow(crime)*.7))
+train<-crime[dt,]
+train <- train[!is.na(train$NEIGHBORHOODCLUSTER),]
+test<-crime[-dt,]
+
+#DECISITON TREE
+treemodel <- rpart(OFFENSE ~METHOD+SHIFT+start_year+start_month+start_hour+start_dayOfWeek
+                   +NEIGHBORHOODCLUSTER,   data=train)
+printcp(treemodel)
+
+# plot the tree
+plot(treemodel, uniform=TRUE, 
+     main="Classification Tree ")
+text(treemodel, use.n=TRUE, all=TRUE, cex=.8)
+
+# confusion matrix
+Prediction <- predict(treemodel, test, type = "class")
+confusionMatrix(Prediction, test$OFFENSE)
+
+# random forest
+fitrf <- randomForest(OFFENSE ~SHIFT+METHOD+start_year+
+                        start_month+start_hour+start_dayOfWeek+
+                        NEIGHBORHOODCLUSTER,   data = train, ntree=100)
+summary(train)
+print(fitrf) # view results 
+importance(fitrf) # importance of each predictor
+varImpPlot(fitrf)
+test$pred_crime<-predict(fitrf,test)
+confusionMatrix(test$pred_crime, test$OFFENSE)
+```
+
+The accuracy of Decision tree and Random Forest are both around 0.5, which is not bad, but comparing to KNN, it's worse.
+
+## Predict the Crime Probability 
+
+We need to predict the crime probability in a certain location within a certain period of time, in order to make our results meaningful.
+
+```{r}
+data$start_dayOfWeek <- as.character(data$start_dayOfWeek)
+
+# this function needs three inputs : date, period of a day and location, and it will give a crime probability output.
+pred <- function(date, shift, location){
+  ss<-gsub(" ","",deparse(substitute(shift)))
+  ll<-as.integer(deparse(substitute(location)))
+  dd<-gsub(" ","",deparse(substitute(date)))
+  shift1 <- data[which(data$SHIFT == ss),]
+  location1 <- shift1[which(shift1$NEIGHBORHOODCLUSTER == ll),]
+  dow <- weekdays(as.Date(dd))
+  r<-dim(data[which(data$start_dayOfWeek == dow),])[1]/dim(data)[1]
+  p <- dim(location1)[1]/dim(data)[1]*r
+  t<-c(substring(dd,1,4),substring(dd,6,7),substring(dd,9,10),ss,ll, dow, p)
+  return(t)
+}
+```
+
+## Display the Results
+
+We will show the predict results around GWU, which is in neighborhood 5.
+```{r}
+# predict the crime type around GWU, which is in neighborhood 5
+t1<-pred(2016-12-17, DAY, 05)
+t2<-pred(2016-12-17, NIGHT, 05)
+t3<-pred(2016-12-17, MIDNIGHT, 05)
+t4<-pred(2016-12-18, DAY, 05)
+t5<-pred(2016-12-18, NIGHT, 05)
+t6<-pred(2016-12-18, MIDNIGHT, 05)
+t7<-pred(2016-12-19, DAY, 05)
+t8<-pred(2016-12-19, NIGHT, 05)
+t9<-pred(2016-12-19, MIDNIGHT, 05)
+t<-as.data.frame(rbind(t1,t2,t3,t4,t5,t6,t7,t8,t9))
+colnames(t)<-c("year","month","day","shift","neighborhood", "day of week", "crime probability")
+
+# build up new test data, which we are going to predict
+colnames(test.x)
+SHIFT<-c(1,2,3,1,2,3,1,2,3)
+METHOD <- c(1,1,1,2,2,2,3,3,3)
+BLOCKXCOORD <- rep(2374578,9)
+BLOCKYCOORD <- rep(820740,9)
+NEIGHBORHOODCLUSTER <- rep(05,9)
+start_year <- rep(2016,9)
+start_month <- rep(12,9)
+start_dayOfWeek <- c(6,6,6,7,7,7,1,1,1)
+start_hour <- c(10,20,04,08,22,02,15,23,01)
+
+newtest <- as.data.frame(cbind(SHIFT, METHOD,BLOCKXCOORD,BLOCKYCOORD,NEIGHBORHOODCLUSTER,start_year,start_month,start_hour,start_dayOfWeek))
+
+# use knn to predict the crime type
+knn.pred=knn(train.x,newtest,train.y,k=1)
+crime_type <- knn.pred
+
+# use the probability function to predict the crime probability
+probability <- t$`crime probability`
+results <- cbind(t,crime_type, probability)
+results
+
+```
+
+According to this result, for example, there is a 0.1% probability that there will be a type 3 crime (BURGLARY) happen in day time in GWU neighborhood.
